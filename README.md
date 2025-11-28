@@ -8,6 +8,7 @@ A minimal Retrieval-Augmented Generation (RAG) system built in **Go**, featuring
 * ✅ Dark-mode frontend UI
 * ✅ Unit tests
 * ✅ Docker & Docker Compose support
+* ✅ Google Cloud Platform (GCP) Deployment
 
 ---
 
@@ -17,6 +18,8 @@ A minimal Retrieval-Augmented Generation (RAG) system built in **Go**, featuring
 * Chunking + embedding pipeline
 * Cosine similarity search
 * Query interface with similarity scores
+* Reset all in-memory data on demand
+* Embeddings use OpenAI, but no LLM is involved — all results come strictly from uploaded content
 
 ---
 
