@@ -26,6 +26,7 @@ A minimal Retrieval-Augmented Generation (RAG) system built in **Go**, featuring
 
 ```
 go-rag-demo/
+├── .github/         # CI / CD
 ├── frontend/        # HTML UI (served by Go)
 ├── rag/             # Core RAG logic (chunking, store, embedding)
 ├── main.go          # HTTP server and handlers
@@ -66,6 +67,14 @@ docker compose down
 
 ## 🔌 API Endpoints
 
+### GET /health
+
+Health check endpoint
+
+```bash
+curl http://localhost:8080/health
+```
+
 ### POST /upload
 
 Upload raw text
@@ -91,6 +100,14 @@ Query indexed content
 curl -X POST http://localhost:8080/query \
   -H "Content-Type: application/json" \
   -d '{"query": "your question"}'
+```
+
+### POST /reset
+
+Clear all in-memory data (for all users)
+
+```bash
+curl -X POST http://localhost:8080/reset
 ```
 
 ---
