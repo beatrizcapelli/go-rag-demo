@@ -34,30 +34,45 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
+    env:
+      SERVICE_NAME: go-rag-demo
+      REPOSITORY: go-rag-repo
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 1) Authenticate to GCP using the service account JSON
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2) Install gcloud SDK (uses the auth from the step above)
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          service_account_key: ${{ secrets.GCP_SA_KEY }}
-          export_default_credentials: true
 
+      # 3) Configure Docker to use gcloud for Artifact Registry
       - name: Configure Docker auth for Artifact Registry
         run: gcloud auth configure-docker ${{ secrets.GCP_REGION }}-docker.pkg.dev --quiet
 
+      # 4) Build Docker image
       - name: Build Docker image
         run: |
           IMAGE=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}
+          echo "Building image: $IMAGE"
           docker build -t $IMAGE .
 
+      # 5) Push Docker image
       - name: Push Docker image
         run: |
           IMAGE=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}
+          echo "Pushing image: $IMAGE"
           docker push $IMAGE
 
+      # 6) Deploy to Cloud Run
       - name: Deploy to Cloud Run
         run: |
           IMAGE=${{ secrets.GCP_REGION }}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}
