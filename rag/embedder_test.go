@@ -2,6 +2,8 @@ package rag
 
 import "testing"
 
+// TODO - Tests for OpenAI embedder
+
 func TestSimpleEmbedder_Deterministic(t *testing.T) {
 	e := NewSimpleEmbedder()
 

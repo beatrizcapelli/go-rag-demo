@@ -2,132 +2,378 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"io"
+	"log"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"go-rag-demo/rag"
 )
 
-type fakeEmbedder struct{}
+type FakeEmbedder struct{}
 
-func (f fakeEmbedder) Embed(text string) []float64 {
-    // very simple deterministic vector
-    return []float64{1, 0, 0, 0}
+func (f *FakeEmbedder) Embed(text string) []float64 {
+	// deterministic embedding
+	return []float64{0.1, 0.2, 0.3}
+}
+
+type fakePDFReader struct {
+	text string
+}
+
+func (f *fakePDFReader) GetPlainText() (io.Reader, error) {
+	return strings.NewReader(f.text), nil
+}
+
+func captureLogs(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(old)
+
+	fn()
+	return buf.String()
 }
 
 func newTestServer() *Server {
-    return NewServerWithEmbedder(fakeEmbedder{})
+	return NewServerWithEmbedder(&FakeEmbedder{})
 }
 
-func TestHealthHandler_OK(t *testing.T) {
-	s := newTestServer()
+func TestHealthHandler(t *testing.T) {
+	srv := newTestServer()
 
 	req := httptest.NewRequest(http.MethodGet, "/health", nil)
 	w := httptest.NewRecorder()
 
-	s.healthHandler(w, req)
+	logs := captureLogs(t, func() {
+		srv.healthHandler(w, req)
+	})
 
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
+	}
+
+	// health has no logs
+	if strings.TrimSpace(logs) != "" {
+		t.Fatalf("expected no logs, got %q", logs)
 	}
 }
 
-func TestUploadHandler_StoresChunks(t *testing.T) {
-	s := newTestServer()
+func TestUploadHandler(t *testing.T) {
+	srv := newTestServer()
 
-	body := "This is a test document. It has two sentences."
-	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader(body))
-	w := httptest.NewRecorder()
+	longText := strings.Repeat("This is a sentence that will be chunked. ", 500)
 
-	s.uploadHandler(w, req)
-
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	tests := []struct {
+		name           string
+		method         string
+		body           string
+		wantStatusCode int
+		wantLogSubstr  string // if empty, we assert there are no logs
+	}{
+		{
+			name:           "success_small_text",
+			method:         http.MethodPost,
+			body:           "This is a valid small text",
+			wantStatusCode: http.StatusOK,
+			wantLogSubstr:  "upload_text=",
+		},
+		{
+			name:           "method_not_allowed",
+			method:         http.MethodGet,
+			body:           "whatever",
+			wantStatusCode: http.StatusMethodNotAllowed,
+			wantLogSubstr:  "",
+		},
+		{
+			name:           "empty_body",
+			method:         http.MethodPost,
+			body:           "",
+			wantStatusCode: http.StatusBadRequest,
+			wantLogSubstr:  "",
+		},
+		{
+			name:           "too_many_chunks",
+			method:         http.MethodPost,
+			body:           longText,
+			wantStatusCode: http.StatusBadRequest,
+			wantLogSubstr:  "error - text too big",
+		},
 	}
 
-	var data map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		t.Fatalf("failed to decode response json: %v", err)
-	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			var bodyReader io.Reader
+			if tc.body != "" {
+				bodyReader = strings.NewReader(tc.body)
+			}
 
-	val, ok := data["chunks_added"]
-	if !ok {
-		t.Fatalf("expected 'chunks_added' in response")
-	}
+			req := httptest.NewRequest(tc.method, "/upload", bodyReader)
+			w := httptest.NewRecorder()
 
-	if n, ok := val.(float64); !ok || n < 1 {
-		t.Fatalf("expected at least 1 chunk added, got %v", val)
+			logs := captureLogs(t, func() {
+				srv.uploadHandler(w, req)
+			})
+
+			if w.Code != tc.wantStatusCode {
+				t.Fatalf("expected status %d, got %d", tc.wantStatusCode, w.Code)
+			}
+
+			if tc.wantLogSubstr == "" {
+				if strings.TrimSpace(logs) != "" {
+					t.Fatalf("expected no logs, got %q", logs)
+				}
+			} else {
+				if !strings.Contains(logs, tc.wantLogSubstr) {
+					t.Fatalf("expected logs to contain %q, got %q", tc.wantLogSubstr, logs)
+				}
+			}
+		})
 	}
 }
 
-func TestUploadHandler_WrongMethod(t *testing.T) {
-	s := newTestServer()
+func TestUploadPDFHandler(t *testing.T) {
+	srv := newTestServer()
 
-	req := httptest.NewRequest(http.MethodGet, "/upload", nil)
-	w := httptest.NewRecorder()
+	originalOpenPDF := openPDF
+	defer func() { openPDF = originalOpenPDF }()
 
-	s.uploadHandler(w, req)
+	t.Run("success", func(t *testing.T) {
+		openPDF = func(path string) (*os.File, PDFReader, error) {
+			return nil, &fakePDFReader{text: "Text extracted from PDF"}, nil
+		}
 
-	if w.Result().StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("expected 405 for GET /upload, got %d", w.Result().StatusCode)
-	}
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+
+		part, err := writer.CreateFormFile("file", "test.pdf")
+		if err != nil {
+			t.Fatalf("failed to create form file: %v", err)
+		}
+		part.Write([]byte("dummy pdf bytes"))
+		writer.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/upload-pdf", &buf)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.uploadPDFHandler(w, req)
+		})
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		if !strings.Contains(logs, "upload_pdf=") {
+			t.Fatalf("expected upload pdf log, got %q", logs)
+		}
+	})
+
+	t.Run("method_not_allowed", func(t *testing.T) {
+		// openPDF not used in this path
+		req := httptest.NewRequest(http.MethodGet, "/upload-pdf", nil)
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.uploadPDFHandler(w, req)
+		})
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", w.Code)
+		}
+
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs, got %q", logs)
+		}
+	})
+
+	t.Run("missing_file_field", func(t *testing.T) {
+		// openPDF not used in this path
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		// no file field added here
+		if err := writer.Close(); err != nil {
+			t.Fatalf("failed to close writer: %v", err)
+		}
+
+		req := httptest.NewRequest(http.MethodPost, "/upload-pdf", &buf)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.uploadPDFHandler(w, req)
+		})
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for missing file, got %d", w.Code)
+		}
+
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs for missing file, got %q", logs)
+		}
+	})
+
+	t.Run("no_text_extracted", func(t *testing.T) {
+		openPDF = func(path string) (*os.File, PDFReader, error) {
+			return nil, &fakePDFReader{text: ""}, nil
+		}
+
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, err := writer.CreateFormFile("file", "empty.pdf")
+		if err != nil {
+			t.Fatalf("failed to create form file: %v", err)
+		}
+		part.Write([]byte("dummy"))
+		writer.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/upload-pdf", &buf)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.uploadPDFHandler(w, req)
+		})
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for no text extracted, got %d", w.Code)
+		}
+
+		// handler does not log anything in this path
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs for no-text case, got %q", logs)
+		}
+	})
+
+	t.Run("pdf_too_big", func(t *testing.T) {
+		longText := strings.Repeat("This is a sentence that will be chunked from pdf. ", 500)
+
+		openPDF = func(path string) (*os.File, PDFReader, error) {
+			return nil, &fakePDFReader{text: longText}, nil
+		}
+
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
+		part, err := writer.CreateFormFile("file", "big.pdf")
+		if err != nil {
+			t.Fatalf("failed to create form file: %v", err)
+		}
+		part.Write([]byte("dummy pdf bytes"))
+		writer.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/upload-pdf", &buf)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.uploadPDFHandler(w, req)
+		})
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for pdf too big, got %d", w.Code)
+		}
+
+		// In this path, we log both upload_pdf and the error
+		if !strings.Contains(logs, "upload_pdf=") {
+			t.Fatalf("expected upload_pdf log, got %q", logs)
+		}
+		if !strings.Contains(logs, "error - pdf too big") {
+			t.Fatalf("expected 'error - pdf too big' log, got %q", logs)
+		}
+	})
 }
 
-func TestQueryHandler_NoBody(t *testing.T) {
-	s := newTestServer()
+func TestQueryHandler(t *testing.T) {
+	srv := newTestServer()
 
-	req := httptest.NewRequest(http.MethodPost, "/query", bytes.NewReader([]byte{}))
-	w := httptest.NewRecorder()
+	t.Run("success", func(t *testing.T) {
+		// Seed store with one chunk so query returns something
+		srv.store.Add(rag.Chunk{
+			Content:   "hello world",
+			Embedding: srv.embedder.Embed("hello world"),
+			Source:    "doc1",
+		})
 
-	s.queryHandler(w, req)
+		payload := `{"query":"hello"}`
+		req := httptest.NewRequest(http.MethodPost, "/query", strings.NewReader(payload))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
 
-	if w.Result().StatusCode != http.StatusBadRequest {
-		t.Fatalf("expected 400 for empty body, got %d", w.Result().StatusCode)
-	}
+		logs := captureLogs(t, func() {
+			srv.queryHandler(w, req)
+		})
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d", w.Code)
+		}
+
+		if !strings.Contains(logs, `query="hello"`) {
+			t.Fatalf("expected query log, got %q", logs)
+		}
+	})
+
+	t.Run("empty_query", func(t *testing.T) {
+		body := `{"query":""}`
+		req := httptest.NewRequest(http.MethodPost, "/query", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+
+		logs := captureLogs(t, func() {
+			srv.queryHandler(w, req)
+		})
+
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 for empty query, got %d", w.Code)
+		}
+
+		// No logs are written for the "empty query" error path
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs for empty query error, got %q", logs)
+		}
+	})
 }
 
-func TestQueryHandler_ReturnsResults(t *testing.T) {
-	s := newTestServer()
+func TestResetHandler(t *testing.T) {
+	srv := newTestServer()
 
-	// first upload some text
-	uploadBody := "Go is great for concurrent services. It works well for APIs."
-	uploadReq := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader(uploadBody))
-	uploadRes := httptest.NewRecorder()
-	s.uploadHandler(uploadRes, uploadReq)
+	t.Run("success", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/reset", nil)
+		w := httptest.NewRecorder()
 
-	// now query
-	q := map[string]string{"query": "concurrent services"}
-	buf, _ := json.Marshal(q)
+		logs := captureLogs(t, func() {
+			srv.resetHandler(w, req)
+		})
 
-	req := httptest.NewRequest(http.MethodPost, "/query", bytes.NewReader(buf))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("expected 204, got %d", w.Code)
+		}
 
-	s.queryHandler(w, req)
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs, got %q", logs)
+		}
+	})
 
-	resp := w.Result()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200, got %d", resp.StatusCode)
-	}
+	t.Run("method_not_allowed", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/reset", nil)
+		w := httptest.NewRecorder()
 
-	var results []struct {
-		Chunk struct {
-			Content string `json:"Content"`
-		} `json:"Chunk"`
-		Score float64 `json:"Score"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&results); err != nil {
-		t.Fatalf("failed to decode results: %v", err)
-	}
+		logs := captureLogs(t, func() {
+			srv.resetHandler(w, req)
+		})
 
-	if len(results) == 0 {
-		t.Fatalf("expected at least one result")
-	}
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("expected 405, got %d", w.Code)
+		}
 
-	if results[0].Chunk.Content == "" {
-		t.Fatalf("expected chunk content to be non-empty")
-	}
+		if strings.TrimSpace(logs) != "" {
+			t.Fatalf("expected no logs, got %q", logs)
+		}
+	})
 }

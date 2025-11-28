@@ -13,6 +13,8 @@ import (
 	"strings"
 )
 
+
+
 type Server struct {
 	store    *rag.InMemoryStore
 	embedder rag.Embedder
@@ -31,6 +33,14 @@ func NewServerWithEmbedder(e rag.Embedder) *Server {
         embedder: e,
         minScore: 0.4,
     }
+}
+
+type PDFReader interface {
+    GetPlainText() (io.Reader, error)
+}
+
+var openPDF = func(path string) (*os.File, PDFReader, error) {
+    return pdf.Open(path)
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -105,12 +115,14 @@ func (s *Server) uploadPDFHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, rdr, err := pdf.Open(tmp.Name())
-	if err != nil {
-		http.Error(w, "failed to open pdf", http.StatusInternalServerError)
-		return
-	}
-	defer f.Close()
+    f, rdr, err := openPDF(tmp.Name())
+    if err != nil {
+        http.Error(w, "failed to open pdf", http.StatusInternalServerError)
+        return
+    }
+    if f != nil {
+        defer f.Close()
+    }
 
 	var buf bytes.Buffer
 	b, err := rdr.GetPlainText()
