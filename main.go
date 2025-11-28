@@ -55,6 +55,15 @@ func (s *Server) uploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	chunks := rag.ChunkText(text, "doc1", s.embedder)
+
+	log.Printf("upload_text=%q chunks=%d\n", text, len(chunks))
+
+	if len(chunks) > 5 {
+	    log.Printf("error - text too big")
+		http.Error(w, "text too big", http.StatusBadRequest)
+		return
+	}
+
 	s.store.Add(chunks...)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -131,6 +140,14 @@ func (s *Server) uploadPDFHandler(w http.ResponseWriter, r *http.Request) {
 	chunks := rag.ChunkText(text, source, s.embedder)
 	s.store.Add(chunks...)
 
+	log.Printf("upload_pdf=%q chunks_added=%d\n", source, len(chunks))
+
+	if len(chunks) > 5 {
+	    log.Printf("error - pdf too big")
+		http.Error(w, "pdf too big", http.StatusBadRequest)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"chunks_added": len(chunks),
@@ -174,6 +191,7 @@ func (s *Server) queryHandler(w http.ResponseWriter, r *http.Request) {
 	qEmbedding := s.embedder.Embed(req.Query)
 	results := s.store.Search(qEmbedding, 3)
 
+    log.Printf("query=%q\n", req.Query)
 	for _, r := range results {
         log.Printf("query=%q chunk=%q score=%.3f\n", req.Query, r.Chunk.Content, r.Score)
     }
