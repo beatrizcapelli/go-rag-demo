@@ -113,6 +113,14 @@ Current embedder is a deterministic demo implementation. It can be replaced with
 
 ---
 
+## 🧠 Deployment
+
+The project is using Google Cloud Platform - Cloud Run.
+It has automatic deploy through Github Actions whenever there is a merge to "main" branch.
+It uses Github Action Secrets - GCP_PROJECT_ID, GCP_REGION, GCP_SA_KEY.
+
+---
+
 ## 👤 Author
 
 Built by **Beatriz Capelli** as a portfolio AI backend project.
