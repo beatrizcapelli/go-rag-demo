@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>Go RAG Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * {
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #020617; /* very dark */
+      color: #e5e7eb;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: stretch;
+    }
+
+    .page {
+      width: 100%;
+      max-width: 900px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    .navbar {
+      width: 100%;
+      padding: 6px 4px;
+      display: flex;
+      justify-content: flex-end;
+      font-size: 12px;
+      color: #9ca3af;
+    }
+
+    .navbar span {
+      margin-left: 12px;
+    }
+
+    .header {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+
+    .logo-mark {
+      margin-top: 4px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      border: 1px solid #1f2937;
+      background: radial-gradient(circle at top left, #0ea5e9, #4f46e5 40%, #7c3aed 80%);
+      box-shadow: 0 8px 25px rgba(15, 23, 42, 0.8);
+    }
+
+    .logo-text {
+      font-size: 32px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #f9fafb;
+      text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
+      white-space: nowrap;
+    }
+
+    .logo-text span:nth-child(1) { color: #38bdf8; } /* G */
+    .logo-text span:nth-child(2) { color: #f97316; } /* o */
+    .logo-text span:nth-child(3) { color: #a855f7; } /* R */
+    .logo-text span:nth-child(4) { color: #22c55e; } /* A */
+    .logo-text span:nth-child(5) { color: #e5e7eb; } /* G */
+    .logo-text span:nth-child(6) { color: #fbbf24; } /* ! */
+
+    .subtitle {
+      margin-top: 4px;
+      color: #9ca3af;
+      font-size: 12px;
+      text-align: center;
+    }
+
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+      margin-bottom: 6px;
+    }
+
+    .cards-row {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    @media (min-width: 900px) {
+      .cards-row {
+        flex-direction: row;
+      }
+    }
+
+    .card {
+      flex: 1 1 0;
+      background: #020617;
+      border-radius: 12px;
+      padding: 10px;
+      border: 1px solid #1f2937;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.7);
+      display: flex;
+      flex-direction: column;
+      min-height: 0; /* critical for flex children to allow internal scroll */
+    }
+
+    .section-title {
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: #e5e7eb;
+    }
+
+    .section-hint {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+    }
+
+    .search-bar {
+      display: flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid #374151;
+      padding: 6px 10px;
+      background: #020617;
+    }
+
+    .search-bar input {
+      border: none;
+      outline: none;
+      width: 100%;
+      font-size: 13px;
+      background: transparent;
+      color: #e5e7eb;
+    }
+
+    .search-actions {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 1px solid #4b5563;
+      border-radius: 999px;
+      padding: 6px 14px;
+      font-size: 12px;
+      background: #111827;
+      cursor: pointer;
+      color: #e5e7eb;
+      transition: background 0.15s ease, transform 0.1s ease, box-shadow 0.1s ease;
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.7);
+    }
+
+    button:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.9);
+    }
+
+    button:active {
+      transform: translateY(0);
+      box-shadow: 0 4px 10px rgba(15, 23, 42, 0.7);
+    }
+
+    .textarea-wrapper, .pdf-wrapper {
+      border-radius: 10px;
+      border: 1px solid #374151;
+      padding: 6px;
+      background: #020617;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    textarea {
+      width: 100%;
+      border: none;
+      outline: none;
+      resize: none;
+      min-height: 0;
+      flex: 1;
+      font-size: 12px;
+      background: transparent;
+      color: #e5e7eb;
+    }
+
+    .result-label {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    pre {
+      margin-top: 4px;
+      background: #020617;
+      padding: 6px;
+      border-radius: 8px;
+      border: 1px solid #1f2937;
+      max-height: 100%;
+      overflow: auto;
+      font-size: 11px;
+      color: #e5e7eb;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .footer {
+      margin-top: auto;
+      width: 100%;
+      padding: 6px 4px;
+      font-size: 10px;
+      color: #6b7280;
+      text-align: center;
+    }
+
+    #uploadResult,
+    #uploadPdfResult {
+      font-size: 11px;
+      color: #9ca3af;
+    }
+
+    input[type="file"] {
+      font-size: 11px;
+      color: #e5e7eb;
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="navbar">
+      <span>Go RAG Demo</span>
+    </div>
+
+    <div class="header">
+      <div class="logo-mark">
+        <div class="logo-text">
+          <span>G</span><span>o</span><span>R</span><span>A</span><span>G</span><span>!</span>
+        </div>
+      </div>
+      <div class="subtitle">A tiny RAG backend in Go · Dark Mode</div>
+    </div>
+
+    <div class="content">
+      <div class="cards-row">
+        <!-- Query Card -->
+        <div class="card">
+          <div class="section-title">Query your uploaded knowledge</div>
+          <div class="section-hint">Ask a question; results come from your uploaded text/PDFs.</div>
+          <div class="search-bar">
+            <input
+              type="text"
+              id="queryText"
+              placeholder="Ask something about your documents..."
+            />
+          </div>
+          <div class="search-actions">
+            <button onclick="sendQuery()">Search</button>
+          </div>
+          <div class="result-label">Top results (content + score):</div>
+          <div style="flex: 1; min-height: 0; margin-top: 4px;">
+            <pre id="queryResult"></pre>
+          </div>
+        </div>
+
+        <!-- Upload Text Card -->
+        <div class="card">
+          <div class="section-title">Upload raw text</div>
+          <div class="section-hint">Paste any text content and index it into the knowledge base.</div>
+          <div class="textarea-wrapper">
+            <textarea
+              id="uploadText"
+              placeholder="Paste some text here and click Upload to index it..."
+            ></textarea>
+          </div>
+          <div class="search-actions">
+            <button onclick="uploadText()">Upload text</button>
+            <span id="uploadResult"></span>
+          </div>
+        </div>
+
+        <!-- Upload PDF Card -->
+        <div class="card">
+          <div class="section-title">Upload PDF</div>
+          <div class="section-hint">Select a PDF; its text will be extracted and indexed.</div>
+          <div class="pdf-wrapper">
+            <input type="file" id="pdfFile" accept="application/pdf" />
+          </div>
+          <div class="search-actions">
+            <button onclick="uploadPDF()">Upload PDF</button>
+            <span id="uploadPdfResult"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      Powered by Go · RAG demo API: /upload, /upload-pdf &amp; /query
+    </div>
+  </div>
+
+  <script>
+    async function uploadText() {
+      const text = document.getElementById("uploadText").value.trim();
+      const uploadResultEl = document.getElementById("uploadResult");
+
+      if (!text) {
+        uploadResultEl.textContent = "Please paste some text before uploading.";
+        return;
+      }
+
+      try {
+        const response = await fetch("/upload", {
+          method: "POST",
+          body: text
+        });
+
+        if (!response.ok) {
+          const msg = await response.text();
+          uploadResultEl.textContent = "Error: " + msg;
+          return;
+        }
+
+        const result = await response.json();
+        uploadResultEl.textContent = "Chunks added: " + result.chunks_added;
+      } catch (err) {
+        uploadResultEl.textContent = "Network error: " + err;
+      }
+    }
+
+    async function sendQuery() {
+      const query = document.getElementById("queryText").value.trim();
+      const queryResultEl = document.getElementById("queryResult");
+
+      if (!query) {
+        queryResultEl.textContent = "Please type a question before searching.";
+        return;
+      }
+
+      queryResultEl.textContent = "Searching...";
+
+      try {
+        const response = await fetch("/query", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ query: query })
+        });
+
+        if (!response.ok) {
+          const msg = await response.text();
+          queryResultEl.textContent = "Error: " + msg;
+          return;
+        }
+
+        const results = await response.json();
+
+        if (!results.length) {
+          queryResultEl.textContent = "No results found.";
+          return;
+        }
+
+        let output = "";
+        results.forEach((item, index) => {
+          const score = item.Score.toFixed(3);
+          output += `Result ${index + 1} (score: ${score}):\n`;
+          output += item.Chunk.Content + "\n\n";
+        });
+
+        queryResultEl.textContent = output.trim();
+      } catch (err) {
+        queryResultEl.textContent = "Network error: " + err;
+      }
+    }
+
+    async function uploadPDF() {
+      const fileInput = document.getElementById("pdfFile");
+      const resultEl = document.getElementById("uploadPdfResult");
+
+      if (!fileInput.files.length) {
+        resultEl.textContent = "Please choose a PDF file first.";
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append("file", file);
+
+      resultEl.textContent = "Uploading and indexing PDF...";
+
+      try {
+        const response = await fetch("/upload-pdf", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) {
+          const msg = await response.text();
+          resultEl.textContent = "Error: " + msg;
+          return;
+        }
+
+        const result = await response.json();
+        resultEl.textContent =
+          `Indexed ${result.chunks_added} chunks from: ${result.filename}`;
+      } catch (err) {
+        resultEl.textContent = "Network error: " + err;
+      }
+    }
+  </script>
+</body>
+</html>
