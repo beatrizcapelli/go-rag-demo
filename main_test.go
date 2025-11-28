@@ -7,15 +7,17 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"go-rag-demo/rag"
 )
 
+type fakeEmbedder struct{}
+
+func (f fakeEmbedder) Embed(text string) []float64 {
+    // very simple deterministic vector
+    return []float64{1, 0, 0, 0}
+}
+
 func newTestServer() *Server {
-	return &Server{
-		store:    rag.NewInMemoryStore(),
-		embedder: rag.NewSimpleEmbedder(),
-	}
+    return NewServerWithEmbedder(fakeEmbedder{})
 }
 
 func TestHealthHandler_OK(t *testing.T) {

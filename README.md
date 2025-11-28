@@ -17,8 +17,6 @@ A minimal Retrieval-Augmented Generation (RAG) system built in **Go**, featuring
 * Chunking + embedding pipeline
 * Cosine similarity search
 * Query interface with similarity scores
-* Responsive dark-mode UI
-* Fully testable architecture
 
 ---
 
@@ -112,6 +110,16 @@ curl -X POST http://localhost:8080/reset
 
 ---
 
+## ⚙️ Deployment
+
+The project is using Google Cloud Platform - Cloud Run.
+
+It has automatic deploy through Github Actions whenever there is a merge to "main" branch.
+
+It uses Github Action Secrets - **GCP_PROJECT_ID, GCP_REGION, GCP_SA_KEY**.
+
+---
+
 ## 🧠 Architecture Overview
 
 ```
@@ -126,17 +134,11 @@ Chunking → Embedding → InMemory Vector Store
 Cosine Similarity Search
 ```
 
-Current embedder is a deterministic demo implementation. It can be replaced with real embeddings (OpenAI, Cohere, etc) without changing the rest of the architecture.
+Current embedder is integrated with OpenAI (SmallEmbedding3).
 
----
+It uses GCP Secret Manager - **OPENAI_API_KEY**.
 
-## ⚙️ Deployment
-
-The project is using Google Cloud Platform - Cloud Run.
-
-It has automatic deploy through Github Actions whenever there is a merge to "main" branch.
-
-It uses Github Action Secrets - **GCP_PROJECT_ID, GCP_REGION, GCP_SA_KEY**.
+The same is mocked on Unit Tests.
 
 ---
 

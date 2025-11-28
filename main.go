@@ -16,13 +16,21 @@ import (
 type Server struct {
 	store    *rag.InMemoryStore
 	embedder rag.Embedder
+    minScore float64
 }
 
+// Default used in production
 func NewServer() *Server {
-	return &Server{
-		store:    rag.NewInMemoryStore(),
-		embedder: rag.NewSimpleEmbedder(),
-	}
+    return NewServerWithEmbedder(rag.NewOpenAIEmbedder())
+}
+
+// Extra constructor for tests
+func NewServerWithEmbedder(e rag.Embedder) *Server {
+    return &Server{
+        store:    rag.NewInMemoryStore(),
+        embedder: e,
+        minScore: 0.4,
+    }
 }
 
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +156,7 @@ type queryRequest struct {
 
 // POST /query  { "query": "your question" }
 func (s *Server) queryHandler(w http.ResponseWriter, r *http.Request) {
+
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -165,8 +174,26 @@ func (s *Server) queryHandler(w http.ResponseWriter, r *http.Request) {
 	qEmbedding := s.embedder.Embed(req.Query)
 	results := s.store.Search(qEmbedding, 3)
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(results)
+	for _, r := range results {
+        log.Printf("query=%q chunk=%q score=%.3f\n", req.Query, r.Chunk.Content, r.Score)
+    }
+
+    filtered := make([]rag.SearchResult, 0, len(results))
+    for _, r := range results {
+        if r.Score >= s.minScore {
+            filtered = append(filtered, r)
+        }
+    }
+
+    if len(filtered) == 0 {
+        w.Header().Set("Content-Type", "application/json")
+        w.WriteHeader(http.StatusOK)
+        json.NewEncoder(w).Encode([]rag.SearchResult{}) // empty list
+        return
+    }
+
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(filtered)
 }
 
 func main() {
