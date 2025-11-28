@@ -66,3 +66,9 @@ func (s *InMemoryStore) Search(queryEmbedding []float64, topK int) []SearchResul
 	}
 	return results[:topK]
 }
+
+func (s *InMemoryStore) Clear() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.chunks = nil
+}

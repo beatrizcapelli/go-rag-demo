@@ -10,7 +10,7 @@ import (
 	"os"
 	"bytes"
 	"github.com/ledongthuc/pdf"
-
+	"strings"
 )
 
 type Server struct {
@@ -106,11 +106,18 @@ func (s *Server) uploadPDFHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	text := buf.String()
-	if text == "" {
-		http.Error(w, "no text extracted from pdf", http.StatusBadRequest)
-		return
-	}
+    text := buf.String()
+
+    // Normalize PDF text a bit: replace newlines with spaces and trim
+    text = strings.ReplaceAll(text, "\r\n", " ")
+    text = strings.ReplaceAll(text, "\n", " ")
+    text = strings.Join(strings.Fields(text), " ") // collapse multiple spaces
+    text = strings.TrimSpace(text)
+
+    if text == "" {
+        http.Error(w, "no text extracted from pdf", http.StatusBadRequest)
+        return
+    }
 
 	source := header.Filename
 	chunks := rag.ChunkText(text, source, s.embedder)
@@ -122,6 +129,17 @@ func (s *Server) uploadPDFHandler(w http.ResponseWriter, r *http.Request) {
 		"filename":     source,
 	})
 }
+
+func (s *Server) resetHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	s.store.Clear()
+	w.WriteHeader(http.StatusNoContent)
+}
+
 
 
 type queryRequest struct {
@@ -158,6 +176,7 @@ func main() {
 	http.HandleFunc("/upload", srv.uploadHandler)
 	http.HandleFunc("/query", srv.queryHandler)
 	http.HandleFunc("/upload-pdf", srv.uploadPDFHandler)
+    http.HandleFunc("/reset", srv.resetHandler)
 
 
 	fs := http.FileServer(http.Dir("./frontend"))

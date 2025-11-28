@@ -157,6 +157,13 @@
       flex-wrap: wrap;
     }
 
+    .warning {
+      margin-top: 4px;
+      color: #f97316;
+      font-size: 11px;
+      text-align: center;
+    }
+
     button {
       border: 1px solid #4b5563;
       border-radius: 999px;
@@ -257,6 +264,9 @@
         </div>
       </div>
       <div class="subtitle">A tiny RAG backend in Go · Dark Mode</div>
+      <div class="warning">
+        Do not upload sensitive or critical data. All content is kept in memory and shared across users until the service restarts.
+      </div>
     </div>
 
     <div class="content">
@@ -313,7 +323,11 @@
     </div>
 
     <div class="footer">
-      Powered by Go · RAG demo API: /upload, /upload-pdf &amp; /query
+      <span>Powered by Go · Developed by Beatriz Capelli</span>
+      <br />
+      <button onclick="resetData()" style="margin-top: 4px; font-size: 10px; padding: 4px 10px;">
+        Reset all in-memory data
+      </button>
     </div>
   </div>
 
@@ -426,6 +440,39 @@
         resultEl.textContent = "Network error: " + err;
       }
     }
+
+  async function resetData() {
+      if (!confirm("This will delete ALL in-memory data for ALL users until new uploads. Continue?")) {
+        return;
+      }
+
+      try {
+        const response = await fetch("/reset", {
+          method: "POST"
+        });
+
+        if (!response.ok && response.status !== 204) {
+          alert("Error resetting data: " + (await response.text()));
+          return;
+        }
+
+        // Clear UI state
+        const answerBox = document.getElementById("answerBox");
+        const queryResultEl = document.getElementById("queryResult");
+        const uploadResultEl = document.getElementById("uploadResult");
+        const uploadPdfResultEl = document.getElementById("uploadPdfResult");
+
+        if (answerBox) answerBox.textContent = "";
+        if (queryResultEl) queryResultEl.textContent = "";
+        if (uploadResultEl) uploadResultEl.textContent = "";
+        if (uploadPdfResultEl) uploadPdfResultEl.textContent = "";
+
+      } catch (err) {
+        alert("Network error while resetting data: " + err);
+      }
+    }
+
+
   </script>
 </body>
 </html>
